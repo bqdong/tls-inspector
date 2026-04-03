@@ -12,6 +12,14 @@ url = "2"
 sha2 = "0.10"
 hex = "0.4"
 
+[target.'cfg(target_env = "musl")'.dependencies]
+rustls-native-certs = "0.8"
+
 [[bin]]
 name = "tls-inspector"
 path = "src/main.rs"
+
+[profile.release]
+lto = true
+opt-level = "s"
+strip = true
