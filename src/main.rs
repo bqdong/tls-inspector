@@ -3,6 +3,8 @@ use rustls::pki_types::ServerName;
 use rustls::ClientConfig;
 use rustls_platform_verifier::BuilderVerifierExt;
 use sha2::{Digest, Sha256};
+use std::env;
+use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -17,6 +19,23 @@ struct Args {
     url: String,
 }
 
+fn get_proxy() -> Option<(String, u16)> {
+    for var in &["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"] {
+        if let Ok(val) = env::var(var) {
+            if !val.is_empty() {
+                if let Ok(url) = Url::parse(&val) {
+                    let host = url.host_str().map(|s| s.to_string());
+                    let port = url.port().unwrap_or(8080);
+                    if let Some(h) = host {
+                        return Some((h, port));
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
@@ -29,6 +48,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let host = parsed_url.host_str().ok_or("URL must have a host")?;
     let port = parsed_url.port().unwrap_or(443);
 
+    let proxy = get_proxy();
+    if let Some(ref p) = proxy {
+        println!("Using proxy {}:{}", p.0, p.1);
+    }
     println!("Connecting to {}:{}...", host, port);
     println!();
 
@@ -46,9 +69,43 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut conn = rustls::client::ClientConnection::new(config, server_name)?;
 
-    let mut tcp_stream = TcpStream::connect(format!("{}:{}", host, port))?;
+    let connect_host;
+    let connect_port;
+    if let Some(ref p) = proxy {
+        connect_host = p.0.clone();
+        connect_port = p.1;
+    } else {
+        connect_host = host.to_string();
+        connect_port = port;
+    }
+
+    let mut tcp_stream = TcpStream::connect(format!("{}:{}", connect_host, connect_port))?;
     tcp_stream.set_read_timeout(Some(std::time::Duration::from_secs(30)))?;
     tcp_stream.set_write_timeout(Some(std::time::Duration::from_secs(30)))?;
+
+    if proxy.is_some() {
+        let target_host = host.to_string();
+        let target_port = port;
+        let connect_msg = format!(
+            "CONNECT {}:{} HTTP/1.1\r\nHost: {}:{}\r\n\r\n",
+            target_host, target_port, target_host, target_port
+        );
+        tcp_stream.write_all(connect_msg.as_bytes())?;
+
+        let mut response = String::new();
+        tcp_stream.read_to_string(&mut response)?;
+
+        if !response.starts_with("HTTP/1.1 200") && !response.starts_with("HTTP/1.0 200") {
+            return Err(format!("Proxy connection failed: {}", response).into());
+        }
+
+        if let Some(pos) = response.find("\r\n\r\n") {
+            let body = &response[pos + 4..];
+            if !body.is_empty() && !body.trim().is_empty() {
+                return Err(format!("Proxy connection failed: {}", body).into());
+            }
+        }
+    }
 
     let mut verification_error: Option<String> = None;
 
