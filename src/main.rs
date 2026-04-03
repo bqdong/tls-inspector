@@ -91,19 +91,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             target_host, target_port, target_host, target_port
         );
         tcp_stream.write_all(connect_msg.as_bytes())?;
+        tcp_stream.flush()?;
 
-        let mut response = String::new();
-        tcp_stream.read_to_string(&mut response)?;
-
-        if !response.starts_with("HTTP/1.1 200") && !response.starts_with("HTTP/1.0 200") {
-            return Err(format!("Proxy connection failed: {}", response).into());
+        let mut response = Vec::new();
+        let mut buf = [0u8; 1024];
+        loop {
+            match tcp_stream.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    response.extend_from_slice(&buf[..n]);
+                    if response.len() > 4 && response.ends_with(b"\r\n\r\n") {
+                        break;
+                    }
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    break;
+                }
+                Err(e) => return Err(format!("Proxy read error: {}", e).into()),
+            }
         }
 
-        if let Some(pos) = response.find("\r\n\r\n") {
-            let body = &response[pos + 4..];
-            if !body.is_empty() && !body.trim().is_empty() {
-                return Err(format!("Proxy connection failed: {}", body).into());
-            }
+        let response_str = String::from_utf8_lossy(&response);
+        if !response_str.starts_with("HTTP/1.1 200")
+            && !response_str.starts_with("HTTP/1.0 200")
+            && !response_str.starts_with("HTTP/")
+        {
+            return Err(format!("Proxy connection failed: {}", response_str).into());
         }
     }
 
