@@ -63,7 +63,7 @@ jobs:
 
       - name: Get version
         run: |
-          VERSION="${{ github.ref_name }}"
+          VERSION="${{ github.sha }}"
           echo "VERSION=$VERSION" >> $GITHUB_ENV
 
       - name: Download musl binary
