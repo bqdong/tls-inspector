@@ -63,7 +63,7 @@ jobs:
 
       - name: Get version
         run: |
-          VERSION="${{ github.sha }}"
+          VERSION="v$(echo ${{ github.sha }} | cut -c1-7)"
           echo "VERSION=$VERSION" >> $GITHUB_ENV
 
       - name: Download musl binary
