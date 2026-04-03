@@ -1,4 +1,4 @@
-name: Build and Test
+name: Build, Test and Release
 
 on:
   push:
@@ -48,3 +48,41 @@ jobs:
         with:
           name: tls-inspector-musl
           path: target/x86_64-unknown-linux-musl/release/tls-inspector
+
+  release:
+    needs: [build, musl]
+    if: github.event_name == 'push' && contains(github.ref, 'refs/heads/main')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Get version
+        run: |
+          VERSION="${{ github.ref_name }}"
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+      - name: Download musl binary
+        uses: actions/download-artifact@v4
+        with:
+          name: tls-inspector-musl
+          path: release
+
+      - name: Build linux binary
+        run: cargo build --release
+
+      - name: Copy linux binary to release
+        run: cp target/release/tls-inspector release/tls-inspector-linux
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ env.VERSION }}
+          files: release/*
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
