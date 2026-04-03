@@ -76,10 +76,10 @@ jobs:
         run: cargo build --release
 
       - name: Copy linux binary to release
-        run: cp target/release/tls-inspector release/tls-inspector-linux
+        run: cp target/release/tls-inspector release/tls-inspector
 
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.VERSION }}
           files: release/*
