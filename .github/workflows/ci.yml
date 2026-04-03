@@ -1,0 +1,71 @@
+name: Build and Release
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Run clippy
+        run: cargo clippy -- -D warnings
+
+      - name: Run rustfmt
+        run: cargo fmt --check
+
+  musl:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install musl target
+        run: rustup target add x86_64-unknown-linux-musl
+
+      - name: Build musl
+        run: cargo build --release --target x86_64-unknown-linux-musl
+
+      - name: Upload musl binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: tls-inspector-musl
+          path: target/x86_64-unknown-linux-musl/release/tls-inspector
+
+  release:
+    needs: [build, musl]
+    if: github.event_name == 'push' && contains(github.ref, 'refs/heads/main')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download musl binary
+        uses: actions/download-artifact@v4
+        with:
+          name: tls-inspector-musl
+          path: release
+
+      - name: Download linux binary
+        run: cp target/release/tls-inspector release/
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: release/*
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
